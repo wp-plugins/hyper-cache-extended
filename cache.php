@@ -12,7 +12,6 @@ global $hyper_cache_stop;
 
 $hyper_cache_stop = false;
 
-define('HYPER_CACHE_EXTENDED', '0.9.8');
 
 hyper_log_cache('hyper cache init',3);
 
@@ -30,25 +29,39 @@ $hyper_uri = $_SERVER['REQUEST_URI'];
 $hyper_qs = strpos($hyper_uri, '?');
 
 if ($hyper_qs !== false) {
+
 	if ($hyper_cache['strip_qs'])
 		$hyper_uri = substr($hyper_uri, 0, $hyper_qs);
-	else
-		if (!$hyper_cache['cache_qs'])
+	elseif (!$hyper_cache['cache_qs']){
+		// Check for other than page_id and p queries
+		parse_str($_SERVER['QUERY_STRING'],$argv);
+		if(count($argv)==1 && (isset($argv['page_id']) || isset($argv['p']))){
+			hyper_log_cache('QS found but only ignored items',3);
+		}else{	
+			hyper_log_cache('QS found returning',3);
 			return false;
+		}
+	}
 }
 
-if (strpos($hyper_uri, 'robots.txt') !== false)
+if (strpos($hyper_uri, 'robots.txt') !== false){
+	hyper_log_cache('robots.txt found returning',3);
 	return false;
+}
 
 // Checks for rejected url
 if ($hyper_cache_reject !== false) {
 	foreach ($hyper_cache_reject as $uri) {
 		if (substr($uri, 0, 1) == '"') {
-			if ($uri == '"' . $hyper_uri . '"')
+			if ($uri == '"' . $hyper_uri . '"'){
+				hyper_log_cache('Rejected URL1 found returning',3);
 				return false;
+			}
 		}
-		if (substr($hyper_uri, 0, strlen($uri)) == $uri)
+		if (substr($hyper_uri, 0, strlen($uri)) == $uri){
+			hyper_log_cache('Rejected URL2 found returning',3);
 			return false;
+		}
 	}
 }
 
@@ -93,11 +106,10 @@ if (strpos($hyper_uri, '/wp-') !== false)
 if (function_exists('is_multisite') && is_multisite() && strpos($hyper_uri, '/files/') !== false)
 	return false;
 
-$hyper_uri = $_SERVER['HTTP_HOST'] . $hyper_uri;
-
 // The name of the file with html and other data
 $hyper_cache_name = md5($hyper_uri);
 $hc_file = $hyper_cache['path'] . $hyper_cache_name . hyper_mobile_type() . '.dat';
+
 
 if (!file_exists($hc_file)) {
 	hyper_log_cache('Cache not found! hyper_cache_start()',3);
@@ -113,7 +125,7 @@ $server_load = (float)$loadavg[0];
 $hc_file_time = @ filemtime($hc_file);
 $hc_file_age = time() - $hc_file_time;
 
-if ($hc_file_age > $hyper_cache['timeout']){
+if ($hc_file_age > ($hyper_cache['timeout']*60)){
 	if($server_load < $hyper_cache['load']) {
 		hyper_cache_start();
 		return;
@@ -232,19 +244,25 @@ function hyper_cache_start($delete = true) {
 
 // Called whenever the page generation is ended
 function hyper_cache_callback($buffer) {
-	global $hyper_cache, $hyper_cache_stop, $hyper_redirect, $hc_file, $hyper_cache_name;
+	global $hyper_cache, $hyper_cache_stop, $hyper_redirect, $hc_file, $hyper_cache_name,$wp_query;
 
 	$buffer = apply_filters('hyper_cache_buffer', $buffer);
 
-	if ($hyper_cache_stop)
+	if ($hyper_cache_stop){
+
 		return $buffer;
+	}
+
 
 	if (!$hyper_cache['notfound'] && is_404()) {
 		return $buffer;
 	}
 
-	if (strpos($buffer, '</body>')=== false && (function_exists('is_feed') && !is_feed()))
+
+	if (strpos($buffer, '</body>')=== false && (function_exists('is_feed') && !is_feed())){
 		return $buffer;
+	}
+
 
 	// WP is sending a redirect
 	if ($hyper_redirect) {
@@ -254,29 +272,39 @@ function hyper_cache_callback($buffer) {
 		}
 		return $buffer;
 	}
+	if(!function_exists('is_home')){
+		return $buffer;
+	}
 
 	if (is_home() && $hyper_cache['home']) {
 		return $buffer;
 	}
 
-	if ((function_exists('is_feed') && !is_feed()) && !$hyper_cache['feed']) {
-		return $buffer;
+	if (!$hyper_cache['feed']) {
+		if(function_exists('is_feed') && is_feed()){
+			$feed = is_feed();
+			hyper_log_cache('Feed Found ('.$feed.') and not cached (disabled from config)!',3);
+			return $buffer;
+		}
 	}
 
 	if (is_home())
 		$data['type'] = 'home';
-	else
-		if ((function_exists('is_feed') && !is_feed()))
+	else {
+		if ((function_exists('is_feed') && !is_feed())){
 			$data['type'] = 'feed';
-		else
-			if (is_archive())
-				$data['type'] = 'archive';
-			else
-				if (is_single())
-					$data['type'] = 'single';
-				else
-					if (is_page())
-						$data['type'] = 'page';
+		}
+		elseif (is_archive()){
+			$data['type'] = 'archive';
+		}
+		elseif (is_single()){
+			$data['type'] = 'single';
+		}
+		elseif (is_page()){
+			$data['type'] = 'page';
+		}
+		
+	}
 	$buffer = trim($buffer);
 
 	// Can be a trackback or other things without a body. We do not cache them, WP needs to get those calls.
@@ -290,15 +318,14 @@ function hyper_cache_callback($buffer) {
 		$data['mime'] = 'text/xml;charset=' . $hyper_cache['charset'];
 	} else {
 		$data['mime'] = 'text/html;charset=' . $hyper_cache['charset'];
-    }
-
-    $loadavg = explode(' ',@file_get_contents('/proc/loadavg'));
+	}
+	$loadavg = explode(' ',@file_get_contents('/proc/loadavg'));
 
 	$buffer .= "\n<!--\n";
 	$buffer .= "Hyper cache file: $hyper_cache_name\n";
 	$buffer .= "Cache created: " . date('d-m-Y H:i:s') . "\n";
-    $buffer .= "HCE Version: ".HYPER_CACHE_EXTENDED . "\n";
-    $buffer .= "Load AVG: ".(float)$loadavg[0]."(".$hyper_cache['load'].")\n";
+	$buffer .= "HCE Version: ".HYPER_CACHE_EXTENDED . "\n";
+	$buffer .= "Load AVG: ".(float)$loadavg[0]."(".$hyper_cache['load'].")\n";
 	$buffer .= '-->';
 
 	$data['html'] = $buffer;
@@ -334,12 +361,12 @@ function hyper_mobile_type() {
 	global $hyper_cache;
 
 	if ($hyper_cache['plugin_mobile_pack']) {
-		@ include_once ABSPATH . 'wp-content/plugins/wordpress-mobile-pack/plugins/wpmp_switcher/lite_detection.php';
+		@ include_once(WP_CONTENT_DIR . '/plugins/wordpress-mobile-pack/plugins/wpmp_switcher/lite_detection.php');
 		if (function_exists('lite_detection')) {
 			$is_mobile = lite_detection();
 			if (!$is_mobile)
 				return '';
-			include_once ABSPATH . 'wp-content/plugins/wordpress-mobile-pack/themes/mobile_pack_base/group_detection.php';
+			include_once(WP_CONTENT_DIR . '/plugins/wordpress-mobile-pack/themes/mobile_pack_base/group_detection.php');
 			if (function_exists('group_detection')) {
 				return 'mobile' . group_detection();
 			} else
@@ -398,11 +425,11 @@ function hyper_log_cache($msg,$level=2) {
 	 * 2 - Message
 	 * 3 - Debug
 	 */
-	// return;
-	if($_SERVER['REMOTE_ADDR']!='93.152.186.125'){
-		// return;
-		if($level>2)return;
-	}
+	return;
+	
+	// Log only errors: level > 2
+	if($level>2)return;
+
 	$file_name = dirname(__FILE__) . '/log-cache.txt';
 
 	if(file_exists($file_name) && !is_writable($file_name)) return false;
