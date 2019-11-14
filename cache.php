@@ -384,12 +384,15 @@ function hyper_mobile_type() {
 		return '';
 
 	$hyper_agent = strtolower($_SERVER['HTTP_USER_AGENT']);
-	foreach ($hyper_cache['mobile_agents'] as $hyper_a) {
-		if (strpos($hyper_agent, $hyper_a) !== false) {
-			if (strpos($hyper_agent, 'iphone') || strpos($hyper_agent, 'ipod')) {
-				return 'iphone';
-			} else {
-				return 'pda';
+	$mobile_agents = $hyper_cache['mobile_agents'];
+	if (is_array($mobile_agents) || is_object($mobile_agents)) {
+		foreach ($mobile_agents as $hyper_a) {
+			if (strpos($hyper_agent, $hyper_a) !== false) {
+				if (strpos($hyper_agent, 'iphone') || strpos($hyper_agent, 'ipod')) {
+					return 'iphone';
+				} else {
+					return 'pda';
+				}
 			}
 		}
 	}
